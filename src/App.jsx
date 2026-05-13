@@ -11,6 +11,15 @@ const MANUAL_TAGS = ['늦참', '야근 중', '쉴게용']
 // ── 관리자 PIN (임시 — 나중에 Supabase 인증으로 교체)
 const ADMIN_PIN = '1234'
 
+// ── 한국어 요일 → Supabase 컨럼명 변환
+const DAY_MAP = {
+  '월': 'monday',
+  '화': 'tuesday',
+  '수': 'wednesday',
+  '목': 'thursday',
+  '금': 'friday',
+}
+
 // ── 날짜 문자열 → 요일 레이블 변환 헬퍼
 function getDayLabel(dateStr) {
   const [y, m, d] = dateStr.split('-').map(Number)
@@ -25,6 +34,20 @@ function getTodayStr() {
   const m = String(now.getMonth() + 1).padStart(2, '0')
   const d = String(now.getDate()).padStart(2, '0')
   return `${y}-${m}-${d}`
+}
+
+// ── 임의 날짜 → 해당 주의 월요일 (week_start_date) 계산
+function getWeekStart(dateStr) {
+  const [y, m, d] = dateStr.split('-').map(Number)
+  const date = new Date(y, m - 1, d)
+  const day = date.getDay() // 0=일, 1=월 ... 6=토
+  const diff = day === 0 ? -6 : 1 - day // 월요일이 될 때까지의 대수
+  const monday = new Date(date)
+  monday.setDate(date.getDate() + diff)
+  const my = monday.getFullYear()
+  const mm = String(monday.getMonth() + 1).padStart(2, '0')
+  const md = String(monday.getDate()).padStart(2, '0')
+  return `${my}-${mm}-${md}`
 }
 
 // ────────────────────────────────────────────
@@ -104,8 +127,8 @@ function App() {
   const [members, setMembers] = useState([])
   const [membersLoading, setMembersLoading] = useState(true)
 
-  // ── 주간 목표 요일 (localStorage)
-  const [goals, setGoals] = useState(() => lsGet('zs_goals', {}))
+  // ── 주간 목표 요일 (Supabase)
+  const [goals, setGoals] = useState({})
 
   // ── 주간 누적 시간 초 (localStorage)
   const [weeklySeconds, setWeeklySeconds] = useState(() => lsGet('zs_weeklySeconds', {}))
@@ -139,6 +162,40 @@ function App() {
   useEffect(() => {
     fetchMembers()
   }, [])
+
+  // ── Supabase에서 주간 목표 불러오기
+  // testDate가 바뀌면 (= 다른 주 선택) 자동으로 재조회
+  async function fetchGoals() {
+    const weekStart = getWeekStart(testDate)
+    const { data, error } = await supabase
+      .from('weekly_goals')
+      .select('member_name, monday, tuesday, wednesday, thursday, friday')
+      .eq('week_start_date', weekStart)
+    if (error) {
+      console.error('[fetchGoals]', error.message)
+      return
+    }
+    // Supabase 데이터 형태 → 한국어 요일 형태로 변환
+    // { member_name: { '월': bool, '화': bool, ... } }
+    const newGoals = {}
+    if (data) {
+      data.forEach(row => {
+        newGoals[row.member_name] = {
+          '월': row.monday,
+          '화': row.tuesday,
+          '수': row.wednesday,
+          '목': row.thursday,
+          '금': row.friday,
+        }
+      })
+    }
+    setGoals(newGoals)
+  }
+
+  // testDate가 바뀌면 해당 주의 목표를 다시 불러온다
+  useEffect(() => {
+    fetchGoals()
+  }, [testDate])
 
   // ────────────────────────────────────────────
   // 파생 값
@@ -199,19 +256,13 @@ function App() {
       return
     }
 
-    // goals, weeklySeconds는 이전처럼 localStorage 유지
-    const newGoals = {
-      ...goals,
-      [name]: goals[name] || { 월: false, 화: false, 수: false, 목: false, 금: false },
-    }
+    // goals는 Supabase weekly_goals로 관리— 로컈 상태 수정 불필요
     const newWeekly = { ...weeklySeconds, [name]: weeklySeconds[name] || 0 }
 
     lsSet('zs_myName', name)
-    lsSet('zs_goals', newGoals)
     lsSet('zs_weeklySeconds', newWeekly)
 
     setMyName(name)
-    setGoals(newGoals)
     setWeeklySeconds(newWeekly)
     setNameError('')
 
@@ -266,11 +317,41 @@ function App() {
     setMemberTags(newTags)
   }
 
-  // 주간 목표 토글
-  function toggleGoal(member, day) {
-    const newGoals = { ...goals, [member]: { ...goals[member], [day]: !goals[member]?.[day] } }
-    lsSet('zs_goals', newGoals)
+  // 주간 목표 토글 (Supabase upsert)
+  async function toggleGoal(member, day) {
+    const weekStart = getWeekStart(testDate)
+    const newVal = !goals[member]?.[day]
+
+    // UI 즉시 반영 (원래 값 저장해두고 실패 시 rollback)
+    const prevGoals = goals
+    const newGoals = {
+      ...goals,
+      [member]: { ...goals[member], [day]: newVal },
+    }
     setGoals(newGoals)
+
+    // Supabase에 upsert
+    // 한국어 요일 키를 영어 컨럼명으로 변환 (DAY_MAP 활용)
+    const currentRow = newGoals[member] || {}
+    const { error } = await supabase
+      .from('weekly_goals')
+      .upsert(
+        {
+          member_name:     member,
+          week_start_date: weekStart,
+          monday:    !!currentRow['월'],
+          tuesday:   !!currentRow['화'],
+          wednesday: !!currentRow['수'],
+          thursday:  !!currentRow['목'],
+          friday:    !!currentRow['금'],
+        },
+        { onConflict: 'member_name,week_start_date' }
+      )
+
+    if (error) {
+      console.error('[toggleGoal]', error.message)
+      setGoals(prevGoals) // rollback
+    }
   }
 
   // ── 관리자 PIN 확인
@@ -303,11 +384,13 @@ function App() {
     // 2. 로컈 members state 업데이트 (화면 즉시 반영)
     setMembers(prev => prev.filter(m => m !== memberName))
 
-    // 3. 주간 목표 삭제 (localStorage 유지)
-    const newGoals = { ...goals }
-    delete newGoals[memberName]
-    lsSet('zs_goals', newGoals)
-    setGoals(newGoals)
+    // 3. 주간 목표는 Supabase on delete cascade로 자동 삭제됨
+    //    로컈 state만 업데이트
+    setGoals(prev => {
+      const next = { ...prev }
+      delete next[memberName]
+      return next
+    })
 
     // 4. 주간 누적 시간 삭제 (localStorage 유지)
     const newWeekly = { ...weeklySeconds }
