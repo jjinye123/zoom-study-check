@@ -121,7 +121,7 @@ function App() {
   const [pinError, setPinError] = useState('')
 
   // ── 테스트용 날짜 (기본값: 실제 오늘)
-  const [testDate, setTestDate] = useState(getTodayStr)
+  const testDate = getTodayStr()
 
   // ── 선택한 날짜 기준 요일 레이블 (평일이면 '월'~'금', 주말이면 null)
   const todayDayLabel = getDayLabel(testDate)
@@ -595,23 +595,6 @@ function App() {
   // ════════════════════════════════════════
   return (
     <div className="app-wrapper">
-      {/* ── 테스트 날짜 컨트롤 바 */}
-      <div className="test-bar">
-        <span className="test-bar-label">🛠 테스트 날짜</span>
-        <input
-          id="test-date-input"
-          type="date"
-          className="test-date-input"
-          value={testDate}
-          onChange={e => setTestDate(e.target.value)}
-        />
-        <span className="test-bar-day">
-          {todayDayLabel ? `${todayDayLabel}요일` : '주말'}
-        </span>
-        <button className="test-bar-reset" onClick={() => setTestDate(getTodayStr())}>
-          오늘로 초기화
-        </button>
-      </div>
 
       {/* ── 헤더 */}
       <header className="app-header">
