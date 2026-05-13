@@ -50,6 +50,16 @@ function getWeekStart(dateStr) {
   return `${my}-${mm}-${md}`
 }
 
+// ── 주간 시작(월요일) → 주간 종료(일요일) 계산
+function getWeekEnd(weekStart) {
+  const [y, m, d] = weekStart.split('-').map(Number)
+  const sunday = new Date(y, m - 1, d + 6)
+  const sy = sunday.getFullYear()
+  const sm = String(sunday.getMonth() + 1).padStart(2, '0')
+  const sd = String(sunday.getDate()).padStart(2, '0')
+  return `${sy}-${sm}-${sd}`
+}
+
 // ────────────────────────────────────────────
 // localStorage 헬퍼 함수
 // ────────────────────────────────────────────
@@ -130,10 +140,10 @@ function App() {
   // ── 주간 목표 요일 (Supabase)
   const [goals, setGoals] = useState({})
 
-  // ── 주간 누적 시간 초 (localStorage)
-  const [weeklySeconds, setWeeklySeconds] = useState(() => lsGet('zs_weeklySeconds', {}))
+  // ── 주간 누적 시간 초 (Supabase attendance_sessions)
+  const [weeklySeconds, setWeeklySeconds] = useState({})
 
-  // ── 현재 출석 중인 멤버 (세션 상태, 새로고침 시 초기화)
+  // ── 현재 출석 중인 멤버 (Supabase attendance_sessions 기반)
   const [attendees, setAttendees] = useState({})
 
   // ── 1초마다 화면 갱신 (실시간 타이머)
@@ -209,10 +219,54 @@ function App() {
     setMemberTags(newTags)
   }
 
-  // testDate가 바뀌면 해당 주의 목표와 태그를 다시 불러온다
+  // ── Supabase에서 출석 세션 불러오기 (활성 세션 + 주간 누적)
+  async function fetchAttendance() {
+    const weekStart = getWeekStart(testDate)
+    const weekEnd = getWeekEnd(weekStart)
+
+    // 활성 세션 (현재 출석 중, check_out_time IS NULL)
+    const { data: activeSessions, error: activeError } = await supabase
+      .from('attendance_sessions')
+      .select('id, member_name, check_in_time')
+      .is('check_out_time', null)
+
+    if (activeError) {
+      console.error('[fetchAttendance] active:', activeError.message)
+    } else {
+      const newAttendees = {}
+      activeSessions?.forEach(row => {
+        newAttendees[row.member_name] = {
+          startTime: new Date(row.check_in_time),
+          sessionId: row.id,
+        }
+      })
+      setAttendees(newAttendees)
+    }
+
+    // 주간 완료 세션 합산 (duration_seconds가 기록된 세션만)
+    const { data: weeklyData, error: weeklyError } = await supabase
+      .from('attendance_sessions')
+      .select('member_name, duration_seconds')
+      .gte('date', weekStart)
+      .lte('date', weekEnd)
+      .not('duration_seconds', 'is', null)
+
+    if (weeklyError) {
+      console.error('[fetchAttendance] weekly:', weeklyError.message)
+    } else {
+      const newWeekly = {}
+      weeklyData?.forEach(row => {
+        newWeekly[row.member_name] = (newWeekly[row.member_name] || 0) + (row.duration_seconds || 0)
+      })
+      setWeeklySeconds(newWeekly)
+    }
+  }
+
+  // testDate가 바뀌면 해당 주의 목표, 태그, 출석 데이터를 다시 불러온다
   useEffect(() => {
     fetchGoals()
     fetchDailyStatus()
+    fetchAttendance()
   }, [testDate])
 
   // ────────────────────────────────────────────
@@ -274,14 +328,8 @@ function App() {
       return
     }
 
-    // goals는 Supabase weekly_goals로 관리— 로컈 상태 수정 불필요
-    const newWeekly = { ...weeklySeconds, [name]: weeklySeconds[name] || 0 }
-
     lsSet('zs_myName', name)
-    lsSet('zs_weeklySeconds', newWeekly)
-
     setMyName(name)
-    setWeeklySeconds(newWeekly)
     setNameError('')
 
     // Supabase에서 멤버 목록 재조회 (다른 디바이스에서 생성된 멤버도 포함)
@@ -289,12 +337,15 @@ function App() {
   }
 
   // 프로필 전환
-  function handleLogout() {
-    if (attendees[myName]) {
-      const elapsed = Math.floor((new Date() - attendees[myName].startTime) / 1000)
-      const newWeekly = { ...weeklySeconds, [myName]: (weeklySeconds[myName] || 0) + elapsed }
-      lsSet('zs_weeklySeconds', newWeekly)
-      setWeeklySeconds(newWeekly)
+  async function handleLogout() {
+    const session = attendees[myName]
+    if (session?.sessionId) {
+      const checkOutTime = new Date()
+      const elapsed = Math.floor((checkOutTime - session.startTime) / 1000)
+      await supabase
+        .from('attendance_sessions')
+        .update({ check_out_time: checkOutTime.toISOString(), duration_seconds: elapsed })
+        .eq('id', session.sessionId)
     }
     lsSet('zs_myName', null)
     setMyName(null)
@@ -305,19 +356,49 @@ function App() {
   }
 
   // 출석하기
-  function handleCheckIn() {
+  async function handleCheckIn() {
     if (isMeCheckedIn) return
-    setAttendees(prev => ({ ...prev, [myName]: { startTime: new Date() } }))
+    const startTime = new Date()
+    setAttendees(prev => ({ ...prev, [myName]: { startTime, sessionId: null } }))
+
+    const { data, error } = await supabase
+      .from('attendance_sessions')
+      .insert({ member_name: myName, check_in_time: startTime.toISOString(), date: testDate })
+      .select('id, check_in_time')
+      .single()
+
+    if (error) {
+      console.error('[handleCheckIn]', error.message)
+      setAttendees(prev => { const next = { ...prev }; delete next[myName]; return next })
+    } else {
+      setAttendees(prev => ({
+        ...prev,
+        [myName]: { startTime: new Date(data.check_in_time), sessionId: data.id },
+      }))
+    }
   }
 
   // 퇴장하기
-  function handleCheckOut() {
+  async function handleCheckOut() {
     if (!isMeCheckedIn) return
-    const elapsed = Math.floor((new Date() - attendees[myName].startTime) / 1000)
-    const newWeekly = { ...weeklySeconds, [myName]: (weeklySeconds[myName] || 0) + elapsed }
-    lsSet('zs_weeklySeconds', newWeekly)
-    setWeeklySeconds(newWeekly)
+    const session = attendees[myName]
+    const checkOutTime = new Date()
+    const elapsed = Math.floor((checkOutTime - session.startTime) / 1000)
+
     setAttendees(prev => { const next = { ...prev }; delete next[myName]; return next })
+    setWeeklySeconds(prev => ({ ...prev, [myName]: (prev[myName] || 0) + elapsed }))
+
+    if (session.sessionId) {
+      const { error } = await supabase
+        .from('attendance_sessions')
+        .update({ check_out_time: checkOutTime.toISOString(), duration_seconds: elapsed })
+        .eq('id', session.sessionId)
+      if (error) {
+        console.error('[handleCheckOut]', error.message)
+        setAttendees(prev => ({ ...prev, [myName]: session }))
+        setWeeklySeconds(prev => ({ ...prev, [myName]: (prev[myName] || 0) - elapsed }))
+      }
+    }
   }
 
   // 수동 태그 선택 (같은 태그 누르면 해제)
@@ -441,11 +522,8 @@ function App() {
       return next
     })
 
-    // 4. 주간 누적 시간 삭제 (localStorage 유지)
-    const newWeekly = { ...weeklySeconds }
-    delete newWeekly[memberName]
-    lsSet('zs_weeklySeconds', newWeekly)
-    setWeeklySeconds(newWeekly)
+    // 4. 주간 누적 시간 로컬 state 업데이트 (Supabase cascade로 DB 자동 삭제)
+    setWeeklySeconds(prev => { const next = { ...prev }; delete next[memberName]; return next })
 
     // 5. 상태 태그 로컬 state 업데이트 (Supabase cascade로 DB 자동 삭제)
     setMemberTags(prev => { const next = { ...prev }; delete next[memberName]; return next })
