@@ -201,6 +201,28 @@ body {
   width: 100%;
 }
 
+/* ── 구글 미팅 공지 */
+.meet-notice {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  background: var(--primary-dim);
+  border: 1.5px solid var(--primary-l);
+  border-radius: var(--radius);
+  padding: 14px 16px;
+  margin-bottom: 14px;
+  text-decoration: none;
+  color: var(--primary-dark);
+  font-weight: 500;
+  transition: background 0.15s;
+}
+.meet-notice:hover { background: var(--primary-dim2); }
+.meet-notice-icon { font-size: 1.3rem; }
+.meet-notice-text { display: flex; flex-direction: column; flex: 1; gap: 2px; }
+.meet-notice-label { font-size: 0.9rem; font-weight: 600; }
+.meet-notice-url { font-size: 0.78rem; opacity: 0.7; }
+.meet-notice-arrow { font-size: 1.1rem; }
+
 /* ── 카드 */
 .card {
   background: var(--card-bg);

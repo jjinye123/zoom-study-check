@@ -656,6 +656,21 @@ function App() {
         {tab === 'dashboard' && (
           <div className="dashboard">
 
+            {/* ── 구글 미팅 공지 */}
+            <a
+              className="meet-notice"
+              href="https://meet.google.com/egx-fidh-qzs"
+              target="_blank"
+              rel="noopener noreferrer"
+            >
+              <span className="meet-notice-icon">📹</span>
+              <span className="meet-notice-text">
+                <span className="meet-notice-label">지금 바로 입장하기</span>
+                <span className="meet-notice-url">meet.google.com/egx-fidh-qzs</span>
+              </span>
+              <span className="meet-notice-arrow">→</span>
+            </a>
+
             {/* ── 내 스터디 참여 카드 */}
             <section className="card my-info-card">
               <h2 className="card-title">
