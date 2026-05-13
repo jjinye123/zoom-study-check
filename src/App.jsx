@@ -948,7 +948,7 @@ function App() {
           <div className="stats-page">
             <section className="card">
               <h2 className="card-title">📊 주간 누적 참석 시간</h2>
-              <p className="card-desc">목표: 주간 10시간 달성</p>
+              <p className="card-desc">목표: 주간 5시간 달성</p>
 
               {members.length === 0 ? (
                 <p className="empty-msg">등록된 멤버가 없습니다</p>
@@ -963,7 +963,7 @@ function App() {
                     })
                     .map((name, idx) => {
                       const total = (weeklySeconds[name] || 0) + getElapsed(name)
-                      const goal = 36000
+                      const goal = 18000
                       const pct = Math.min((total / goal) * 100, 100)
                       const achieved = total >= goal
                       return (
@@ -997,12 +997,12 @@ function App() {
               )}
 
               <div className="lacking-summary">
-                <h3 className="lacking-title">⚠️ 10시간 미달성 멤버</h3>
+                <h3 className="lacking-title">⚠️ 5시간 미달성 멤버</h3>
                 <div className="member-chips">
-                  {members.filter(n => (weeklySeconds[n] || 0) + getElapsed(n) < 36000).length === 0
+                  {members.filter(n => (weeklySeconds[n] || 0) + getElapsed(n) < 18000).length === 0
                     ? <span className="chip chip-present">🎉 전원 달성!</span>
                     : members
-                        .filter(n => (weeklySeconds[n] || 0) + getElapsed(n) < 36000)
+                        .filter(n => (weeklySeconds[n] || 0) + getElapsed(n) < 18000)
                         .map(n => <span key={n} className="chip chip-lacking">{n}</span>)
                   }
                 </div>
