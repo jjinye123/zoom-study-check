@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import './App.css'
 import { supabase } from './lib/supabase'
 
@@ -268,6 +268,27 @@ function App() {
     fetchDailyStatus()
     fetchAttendance()
   }, [testDate])
+
+  // ── 최신 fetch 함수 참조 유지 (Realtime 구독 stale closure 방지)
+  const realtimeFetchRef = useRef({})
+  realtimeFetchRef.current = { fetchMembers, fetchGoals, fetchDailyStatus, fetchAttendance }
+
+  // ── Supabase Realtime 구독 (다른 사용자 변경 실시간 반영)
+  useEffect(() => {
+    const channel = supabase
+      .channel('realtime-all')
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'members' },
+        () => realtimeFetchRef.current.fetchMembers())
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'weekly_goals' },
+        () => realtimeFetchRef.current.fetchGoals())
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'daily_status' },
+        () => realtimeFetchRef.current.fetchDailyStatus())
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'attendance_sessions' },
+        () => realtimeFetchRef.current.fetchAttendance())
+      .subscribe()
+
+    return () => supabase.removeChannel(channel)
+  }, [])
 
   // ────────────────────────────────────────────
   // 파생 값
