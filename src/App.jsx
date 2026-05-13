@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react'
 import './App.css'
+import { supabase } from './lib/supabase'
 
 // ── 요일 목록
 const DAYS = ['월', '화', '수', '목', '금']
@@ -99,8 +100,9 @@ function App() {
   // 내 태그만 수정 가능하지만 구조는 멤버 전체로 관리
   const [memberTags, setMemberTags] = useState(() => lsGet('zs_memberTags', {}))
 
-  // ── 등록된 멤버 목록 (localStorage)
-  const [members, setMembers] = useState(() => lsGet('zs_members', []))
+  // ── 등록된 멤버 목록 (Supabase)
+  const [members, setMembers] = useState([])
+  const [membersLoading, setMembersLoading] = useState(true)
 
   // ── 주간 목표 요일 (localStorage)
   const [goals, setGoals] = useState(() => lsGet('zs_goals', {}))
@@ -116,6 +118,26 @@ function App() {
   useEffect(() => {
     const timer = setInterval(() => setTick(t => t + 1), 1000)
     return () => clearInterval(timer)
+  }, [])
+
+  // ── Supabase에서 멤버 목록 불러오기
+  async function fetchMembers() {
+    setMembersLoading(true)
+    const { data, error } = await supabase
+      .from('members')
+      .select('name')
+      .order('created_at', { ascending: true })
+    if (!error && data) {
+      setMembers(data.map(row => row.name))
+    } else if (error) {
+      console.error('[fetchMembers]', error.message)
+    }
+    setMembersLoading(false)
+  }
+
+  // 앱 시작 시 Supabase에서 멤버 목록 로드
+  useEffect(() => {
+    fetchMembers()
   }, [])
 
   // ────────────────────────────────────────────
@@ -159,13 +181,25 @@ function App() {
   // 핸들러
   // ────────────────────────────────────────────
 
-  // 프로필 생성
-  function handleCreateProfile() {
+  // 프로필 생성 (Supabase)
+  async function handleCreateProfile() {
     const name = nameInput.trim()
     if (!name) { setNameError('이름을 입력해주세요'); return }
     if (name.length > 10) { setNameError('이름은 10자 이내로 입력해주세요'); return }
 
-    const newMembers = members.includes(name) ? members : [...members, name]
+    // Supabase members 테이블에 삽입
+    // 이미 존재하는 이름이면 (error.code === '23505') 무시하고 진행
+    const { error: insertError } = await supabase
+      .from('members')
+      .insert({ name })
+
+    if (insertError && insertError.code !== '23505') {
+      // 23505 = unique violation (이미 존재) → 기존 멤버로 간주하고 진행
+      setNameError('등록 중 오류가 발생했습니다. 다시 시도해주세요.')
+      return
+    }
+
+    // goals, weeklySeconds는 이전처럼 localStorage 유지
     const newGoals = {
       ...goals,
       [name]: goals[name] || { 월: false, 화: false, 수: false, 목: false, 금: false },
@@ -173,15 +207,16 @@ function App() {
     const newWeekly = { ...weeklySeconds, [name]: weeklySeconds[name] || 0 }
 
     lsSet('zs_myName', name)
-    lsSet('zs_members', newMembers)
     lsSet('zs_goals', newGoals)
     lsSet('zs_weeklySeconds', newWeekly)
 
     setMyName(name)
-    setMembers(newMembers)
     setGoals(newGoals)
     setWeeklySeconds(newWeekly)
     setNameError('')
+
+    // Supabase에서 멤버 목록 재조회 (다른 디바이스에서 생성된 멤버도 포함)
+    await fetchMembers()
   }
 
   // 프로필 전환
@@ -249,42 +284,51 @@ function App() {
     }
   }
 
-  // ── 멤버 삭제 (Supabase 전환 시 handleDeleteMember(memberId) 형태 유지)
-  function handleDeleteMember(memberName) {
-    const confirmed = window.confirm(`"전${memberName}"을(를) 삭제하시겠습니까?\n\n해당 멤버의 주간 목표, 누적 시간, 태그 데이터가 모두 삭제됩니다.`)
+  // ── 멤버 삭제 (Supabase)
+  async function handleDeleteMember(memberName) {
+    const confirmed = window.confirm(`“${memberName}”을(를) 삭제하시겠습니까?\n\n해당 멤버의 주간 목표, 누적 시간, 태그 데이터가 모두 삭제됩니다.`)
     if (!confirmed) return
 
-    // 1. 멤버 목록에서 제거
-    const newMembers = members.filter(m => m !== memberName)
-    lsSet('zs_members', newMembers)
-    setMembers(newMembers)
+    // 1. Supabase members 테이블에서 삭제
+    const { error: deleteError } = await supabase
+      .from('members')
+      .delete()
+      .eq('name', memberName)
 
-    // 2. 주간 목표 삭제
+    if (deleteError) {
+      alert('삭제 중 오류가 발생했습니다. 다시 시도해주세요.')
+      return
+    }
+
+    // 2. 로컈 members state 업데이트 (화면 즉시 반영)
+    setMembers(prev => prev.filter(m => m !== memberName))
+
+    // 3. 주간 목표 삭제 (localStorage 유지)
     const newGoals = { ...goals }
     delete newGoals[memberName]
     lsSet('zs_goals', newGoals)
     setGoals(newGoals)
 
-    // 3. 주간 누적 시간 삭제
+    // 4. 주간 누적 시간 삭제 (localStorage 유지)
     const newWeekly = { ...weeklySeconds }
     delete newWeekly[memberName]
     lsSet('zs_weeklySeconds', newWeekly)
     setWeeklySeconds(newWeekly)
 
-    // 4. 상태 태그 삭제
+    // 5. 상태 태그 삭제 (localStorage 유지)
     const newTags = { ...memberTags }
     delete newTags[memberName]
     lsSet('zs_memberTags', newTags)
     setMemberTags(newTags)
 
-    // 5. 삭제된 멤버가 현재 로그인 상태이면 로그아웃
+    // 6. 삭제된 멤버가 현재 로그인 상태이면 자동 로그아웃
     if (myName === memberName) {
       lsSet('zs_myName', null)
       setMyName(null)
       setNameInput('')
     }
 
-    // 6. 출석 중이었으면 출석 제거
+    // 7. 출석 중이었으면 출석 제거
     setAttendees(prev => {
       const next = { ...prev }
       delete next[memberName]
