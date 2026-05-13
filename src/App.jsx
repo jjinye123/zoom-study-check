@@ -129,6 +129,9 @@ function App() {
   // ── 현재 탭
   const [tab, setTab] = useState('dashboard')
 
+  // ── 시간 직접 추가 입력값 (분)
+  const [addMinutesInput, setAddMinutesInput] = useState('')
+
   // ── 수동 태그: 멤버별 { '지민': '늦참', '수현': '' ... }
   // 내 태그만 수정 가능하지만 구조는 멤버 전체로 관리
   const [memberTags, setMemberTags] = useState({})
@@ -419,6 +422,52 @@ function App() {
         setAttendees(prev => ({ ...prev, [myName]: session }))
         setWeeklySeconds(prev => ({ ...prev, [myName]: (prev[myName] || 0) - elapsed }))
       }
+    }
+  }
+
+  // 활성 세션 취소 (시간 미기록)
+  async function handleCancelSession() {
+    const session = attendees[myName]
+    if (!session?.sessionId) return
+
+    setAttendees(prev => { const next = { ...prev }; delete next[myName]; return next })
+
+    const { error } = await supabase
+      .from('attendance_sessions')
+      .delete()
+      .eq('id', session.sessionId)
+
+    if (error) {
+      console.error('[handleCancelSession]', error.message)
+      setAttendees(prev => ({ ...prev, [myName]: session }))
+    }
+  }
+
+  // 시간 직접 추가 (출석 깜빡한 경우)
+  async function handleAddTime() {
+    const mins = parseInt(addMinutesInput, 10)
+    if (!mins || mins <= 0 || mins > 600) return
+
+    const seconds = mins * 60
+    const now = new Date()
+    const checkIn = new Date(now - seconds * 1000)
+
+    setWeeklySeconds(prev => ({ ...prev, [myName]: (prev[myName] || 0) + seconds }))
+    setAddMinutesInput('')
+
+    const { error } = await supabase
+      .from('attendance_sessions')
+      .insert({
+        member_name: myName,
+        check_in_time: checkIn.toISOString(),
+        check_out_time: now.toISOString(),
+        duration_seconds: seconds,
+        date: testDate,
+      })
+
+    if (error) {
+      console.error('[handleAddTime]', error.message)
+      setWeeklySeconds(prev => ({ ...prev, [myName]: (prev[myName] || 0) - seconds }))
     }
   }
 
@@ -739,6 +788,44 @@ function App() {
                     ))}
                   </div>
                 )}
+              </div>
+
+              {/* ── 내 기록 수정 */}
+              <div className="correction-section">
+                <span className="correction-title">⏱ 내 기록 수정</span>
+
+                {isMeCheckedIn && (
+                  <div className="correction-session-row">
+                    <span className="correction-session-label">현재 활성 세션이 있어요</span>
+                    <div className="correction-btn-row">
+                      <button className="btn-correction-checkout" onClick={handleCheckOut}>
+                        지금 기준으로 퇴장 처리
+                      </button>
+                      <button className="btn-correction-cancel" onClick={handleCancelSession}>
+                        세션 취소 (0분)
+                      </button>
+                    </div>
+                  </div>
+                )}
+
+                <div className="correction-add-row">
+                  <input
+                    type="number"
+                    className="correction-input"
+                    placeholder="추가할 시간 (분)"
+                    value={addMinutesInput}
+                    onChange={e => setAddMinutesInput(e.target.value)}
+                    min="1"
+                    max="600"
+                  />
+                  <button
+                    className="btn-correction-add"
+                    onClick={handleAddTime}
+                    disabled={!addMinutesInput || parseInt(addMinutesInput) <= 0}
+                  >
+                    + 추가
+                  </button>
+                </div>
               </div>
             </section>
 

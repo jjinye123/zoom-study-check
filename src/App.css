@@ -402,6 +402,89 @@ body {
   line-height: 1.6;
 }
 
+/* ── 내 기록 수정 섹션 */
+.correction-section {
+  border-top: 1.5px dashed var(--card-border);
+  padding-top: 14px;
+  margin-top: 4px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.correction-title {
+  font-size: 0.78rem;
+  font-weight: 600;
+  color: var(--text-muted);
+}
+.correction-session-row {
+  display: flex;
+  flex-direction: column;
+  gap: 7px;
+  background: #fff8ee;
+  border: 1px solid #f0ddb0;
+  border-radius: 10px;
+  padding: 10px 12px;
+}
+.correction-session-label {
+  font-size: 0.75rem;
+  color: #9a7530;
+  font-weight: 500;
+}
+.correction-btn-row { display: flex; gap: 7px; }
+.btn-correction-checkout {
+  flex: 1;
+  padding: 7px 6px;
+  border-radius: 8px;
+  border: 1.5px solid var(--primary-l);
+  background: var(--primary-dim);
+  color: var(--primary-dark);
+  font-size: 0.72rem;
+  font-weight: 600;
+  cursor: pointer;
+}
+.btn-correction-checkout:hover { background: var(--primary-dim2); }
+.btn-correction-cancel {
+  flex: 1;
+  padding: 7px 6px;
+  border-radius: 8px;
+  border: 1.5px solid #ddd7cc;
+  background: #f5f1eb;
+  color: #7a7670;
+  font-size: 0.72rem;
+  font-weight: 600;
+  cursor: pointer;
+}
+.btn-correction-cancel:hover { background: #ede8e0; }
+.correction-add-row { display: flex; gap: 8px; }
+.correction-input {
+  flex: 1;
+  padding: 8px 12px;
+  border: 1.5px solid var(--card-border);
+  border-radius: 8px;
+  font-size: 0.82rem;
+  font-family: inherit;
+  background: #faf8f4;
+  color: var(--text);
+  outline: none;
+}
+.correction-input:focus { border-color: var(--primary-l); background: #fff; }
+.btn-correction-add {
+  padding: 8px 14px;
+  border-radius: 8px;
+  border: 1.5px solid var(--primary-l);
+  background: var(--primary-dim);
+  color: var(--primary-dark);
+  font-size: 0.82rem;
+  font-weight: 700;
+  cursor: pointer;
+  white-space: nowrap;
+}
+.btn-correction-add:hover { background: var(--primary-dim2); }
+.btn-correction-add:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
 /* ── 오늘 멤버 현황 리스트 */
 .member-status-list { display: flex; flex-direction: column; gap: 8px; }
 .member-status-row {
