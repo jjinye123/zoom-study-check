@@ -121,7 +121,7 @@ function App() {
 
   // ── 수동 태그: 멤버별 { '지민': '늦참', '수현': '' ... }
   // 내 태그만 수정 가능하지만 구조는 멤버 전체로 관리
-  const [memberTags, setMemberTags] = useState(() => lsGet('zs_memberTags', {}))
+  const [memberTags, setMemberTags] = useState({})
 
   // ── 등록된 멤버 목록 (Supabase)
   const [members, setMembers] = useState([])
@@ -192,9 +192,27 @@ function App() {
     setGoals(newGoals)
   }
 
-  // testDate가 바뀌면 해당 주의 목표를 다시 불러온다
+  // ── Supabase에서 해당 날짜의 태그 불러오기
+  async function fetchDailyStatus() {
+    const { data, error } = await supabase
+      .from('daily_status')
+      .select('member_name, tag')
+      .eq('date', testDate)
+    if (error) {
+      console.error('[fetchDailyStatus]', error.message)
+      return
+    }
+    const newTags = {}
+    if (data) {
+      data.forEach(row => { newTags[row.member_name] = row.tag })
+    }
+    setMemberTags(newTags)
+  }
+
+  // testDate가 바뀌면 해당 주의 목표와 태그를 다시 불러온다
   useEffect(() => {
     fetchGoals()
+    fetchDailyStatus()
   }, [testDate])
 
   // ────────────────────────────────────────────
@@ -303,18 +321,49 @@ function App() {
   }
 
   // 수동 태그 선택 (같은 태그 누르면 해제)
-  function handleTagToggle(tag) {
+  async function handleTagToggle(tag) {
     const newTag = myTag === tag ? '' : tag
-    const newTags = { ...memberTags, [myName]: newTag }
-    lsSet('zs_memberTags', newTags)
-    setMemberTags(newTags)
+    const prevTags = memberTags
+    setMemberTags(prev => ({ ...prev, [myName]: newTag }))
+
+    if (newTag) {
+      const { error } = await supabase
+        .from('daily_status')
+        .upsert(
+          { member_name: myName, date: testDate, tag: newTag },
+          { onConflict: 'member_name,date' }
+        )
+      if (error) {
+        console.error('[handleTagToggle]', error.message)
+        setMemberTags(prevTags)
+      }
+    } else {
+      const { error } = await supabase
+        .from('daily_status')
+        .delete()
+        .eq('member_name', myName)
+        .eq('date', testDate)
+      if (error) {
+        console.error('[handleTagToggle]', error.message)
+        setMemberTags(prevTags)
+      }
+    }
   }
 
   // 태그 초기화
-  function handleTagClear() {
-    const newTags = { ...memberTags, [myName]: '' }
-    lsSet('zs_memberTags', newTags)
-    setMemberTags(newTags)
+  async function handleTagClear() {
+    const prevTags = memberTags
+    setMemberTags(prev => ({ ...prev, [myName]: '' }))
+
+    const { error } = await supabase
+      .from('daily_status')
+      .delete()
+      .eq('member_name', myName)
+      .eq('date', testDate)
+    if (error) {
+      console.error('[handleTagClear]', error.message)
+      setMemberTags(prevTags)
+    }
   }
 
   // 주간 목표 토글 (Supabase upsert)
@@ -398,11 +447,8 @@ function App() {
     lsSet('zs_weeklySeconds', newWeekly)
     setWeeklySeconds(newWeekly)
 
-    // 5. 상태 태그 삭제 (localStorage 유지)
-    const newTags = { ...memberTags }
-    delete newTags[memberName]
-    lsSet('zs_memberTags', newTags)
-    setMemberTags(newTags)
+    // 5. 상태 태그 로컬 state 업데이트 (Supabase cascade로 DB 자동 삭제)
+    setMemberTags(prev => { const next = { ...prev }; delete next[memberName]; return next })
 
     // 6. 삭제된 멤버가 현재 로그인 상태이면 자동 로그아웃
     if (myName === memberName) {
